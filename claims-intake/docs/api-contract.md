@@ -20,6 +20,8 @@ The claims intake service accepts a first notice of loss from the claims portal,
 
 ## 2. Request
 
+
+
 ### 2.1 Endpoint
 
 ```
@@ -27,15 +29,19 @@ POST /notifications
 Content-Type: application/json
 ```
 
+
+
 ### 2.2 Body
 
-| Field | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `policy_number` | string | yes | Identifier as held in the policy master. Not empty. |
-| `loss_date` | string | yes | Calendar date, `YYYY-MM-DD`. |
-| `claim_type` | string | yes | One of the values in 2.3. Not empty. |
-| `estimated_amount` | decimal | yes | United States dollars, two decimal places. Greater than zero. |
-| `description` | string | no | Free text. Absent and `null` are equivalent. |
+
+| Field              | Type    | Required | Notes                                                         |
+| ------------------ | ------- | -------- | ------------------------------------------------------------- |
+| `policy_number`    | string  | yes      | Identifier as held in the policy master. Not empty.           |
+| `loss_date`        | string  | yes      | Calendar date, `YYYY-MM-DD`.                                  |
+| `claim_type`       | string  | yes      | One of the values in 2.3. Not empty.                          |
+| `estimated_amount` | decimal | yes      | United States dollars, two decimal places. Greater than zero. |
+| `description`      | string  | no       | Free text. Absent and `null` are equivalent.                  |
+
 
 The service rejects a body carrying a field not listed above. A misspelled field name is a defect in the caller's code, and accepting the payload with the field ignored would record a notification built from data the caller did not send.
 
@@ -67,13 +73,15 @@ Content-Type: application/json
 }
 ```
 
-**`claim_reference`** matches the pattern `CLM-YYYY-NNNNNN`, where `YYYY` is the calendar year in which the notification was recorded and `NNNNNN` is a zero padded sequence. A claim reference is unique across all recorded notifications and is never reissued. It is the value the claims handler quotes and the value every downstream system keys on.
+`claim_reference` matches the pattern `CLM-YYYY-NNNNNN`, where `YYYY` is the calendar year in which the notification was recorded and `NNNNNN` is a zero padded sequence. A claim reference is unique across all recorded notifications and is never reissued. It is the value the claims handler quotes and the value every downstream system keys on.
 
-**`status`** is `recorded` on every success response this contract defines. It exists because the portal displays it and because a future state that is not `recorded` is foreseeable. Callers must not treat it as constant.
+`status` is `recorded` on every success response this contract defines. It exists because the portal displays it and because a future state that is not `recorded` is foreseeable. Callers must not treat it as constant.
 
 A refused notification is never recorded and no claim reference is issued. There is no partial outcome: either a notification exists with a reference, or nothing was written.
 
 ## 4. Validation
+
+
 
 ### 4.1 Evaluation order
 
@@ -83,17 +91,179 @@ if it fails, no rule that reads a policy field is evaluated.
 
 ### 4.2 Rule table
 
-| ID  | Condition                                      | Code                    | Status |
-| --- | ---------------------------------------------- | ----------------------- | ------ |
-| V-1 | `policy_number` exists in the policy master    | `POLICY_NOT_FOUND`      | 422    |
-| V-2 | `loss_date` >= policy `effective_date`         | `LOSS_BEFORE_INCEPTION` | 422    |
-| V-3 | `loss_date` <= policy `expiry_date`            | `LOSS_AFTER_EXPIRY`     | 422    |
-| V-4 | `estimated_amount` <= policy `limit`           | `AMOUNT_EXCEEDS_LIMIT`  | 422    |
-| V-5 | `claim_type` permitted on the policy's product | `TYPE_NOT_COVERED`      | 422    |
+
+| ID  | Condition                                                                                                 | Code                     | Status |
+| --- | --------------------------------------------------------------------------------------------------------- | ------------------------ | ------ |
+| V-1 | `policy_number` exists in the policy master                                                               | `POLICY_NOT_FOUND`       | 422    |
+| V-2 | `loss_date` >= policy `effective_date`                                                                    | `LOSS_BEFORE_INCEPTION`  | 422    |
+| V-7 | (`cancellation_date` is null) or ([`cancellation_date` not null] and [`loss_date` < `cancellation_date`]) | `POLICY_CANCELLED`       | 422    |
+| V-3 | `loss_date` <= policy `expiry_date`                                                                       | `LOSS_AFTER_EXPIRY`      | 422    |
+| V-6 | Combination of `policy_number` and `loss_date` and `claim_type` does not exist in recorded notifications  | `DUPLICATE_NOTIFICATION` | 409    |
+| V-5 | `claim_type` permitted on the policy's product                                                            | `TYPE_NOT_COVERED`       | 422    |
+| V-4 | `estimated_amount` <= policy `limit`                                                                      | `AMOUNT_EXCEEDS_LIMIT`   | 422    |
+
 
 Boundaries are inclusive as written. A loss on the inception date is
 covered (WI-0142, AC-3). An amount equal to the limit is within cover.
 
 ## 5. Error envelope
 
+The stable parts are `code` and `message`. `detail` is not stable. 
+
+```
+
+
+{
+  "code": "POLICY_NOT_FOUND",
+  "message": "Policy not found.",
+  "detail": {
+    "rule": "V-1",
+    "policy_number": "MOT-9999"
+  }
+}
+```
+
+```
+
+{
+  "code": "LOSS_BEFORE_INCEPTION",
+  "message": "Loss date precedes policy inception.",
+  "detail": {
+    "rule": "V-2",
+    "loss_date": "2026-02-11",
+    "effective_date": "2026-03-01"
+  }
+}
+```
+
+```
+
+{
+  "code": "LOSS_AFTER_EXPIRY",
+  "message": "Loss date comes after policy expiry date.",
+  "detail": {
+    "rule": "V-3",
+    "loss_date": "2026-02-11",
+    "expiry_date": "2026-01-01"
+  }
+}
+```
+
+```
+
+{
+  "code": "AMOUNT_EXCEEDS_LIMIT",
+  "message": "The amount requested for the claim exceeds the claim limit.",
+  "detail": {
+    "rule": "V-4",
+    "estimated_amount": "29000.00"
+  }
+}
+```
+
+```
+
+{
+  "code": "TYPE_NOT_COVERED",
+  "message": "Loss due to this type is not claimable.",
+  "detail": {
+    "rule": "V-5",
+    "claim_type": "collision"
+  }
+}
+```
+
+```
+
+{
+  "code": "DUPLICATE_NOTIFICATION",
+  "message": "Duplicate claim request received.",
+  "detail": {
+    "rule": "V-6",
+    "policy_number": "MOT-4471",
+    "loss_date": "2026-04-02",
+    "claim_type": "collision",
+    "claim_reference": "CLM-2026-000317"
+  }
+}
+```
+
+```
+
+{
+  "code": "POLICY_CANCELLED",
+  "message": "Policy was cancelled before expiry date.",
+  "detail": {
+    "rule": "V-7",
+    "loss_date": "2026-02-11",
+    "cancellation_date": "2026-01-01"
+  }
+}
+```
+
+```
+
+{
+  "code": "MALFORMED_REQUEST",
+  "message": "The request cannot be interpreted.",
+  "detail": {}
+}
+```
+
+```
+
+{
+  "code": "POLICY_MASTER_TIMEOUT",
+  "message": "The policy master did not answer in time.",
+  "detail": {
+    "policy_number": "MOT-4471",
+    "reason": "timeout"
+  }
+}
+```
+
+```
+
+{
+  "code": "POLICY_MASTER_UNREACHABLE",
+  "message": "The policy master could not be reached.",
+  "detail": {
+    "policy_number": "MOT-4471",
+    "reason": "unreachable"
+  }
+}
+```
+
+```
+
+{
+  "code": "POLICY_MASTER_UNPARSABLE",
+  "message": "The policy master returned a body this service could not read.",
+  "detail": {
+    "policy_number": "MOT-4471",
+    "reason": "unparsable"
+  }
+}
+```
+
+
+
 ## 6. Status code mapping
+
+
+| Code                        | Status |
+| --------------------------- | ------ |
+| —                           | 201    |
+| `MALFORMED_REQUEST`         | 400    |
+| `POLICY_NOT_FOUND`          | 422    |
+| `LOSS_BEFORE_INCEPTION`     | 422    |
+| `POLICY_CANCELLED`          | 422    |
+| `LOSS_AFTER_EXPIRY`         | 422    |
+| `AMOUNT_EXCEEDS_LIMIT`      | 422    |
+| `TYPE_NOT_COVERED`          | 422    |
+| `DUPLICATE_NOTIFICATION`    | 409    |
+| `POLICY_MASTER_TIMEOUT`     | 504    |
+| `POLICY_MASTER_UNREACHABLE` | 503    |
+| `POLICY_MASTER_UNPARSABLE`  | 502    |
+
+
