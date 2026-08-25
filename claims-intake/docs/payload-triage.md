@@ -68,3 +68,13 @@ A decision recorded here and nowhere else has not been made. Amend `docs/api-con
 **Rejected alternative.** Reject EDGE-11 under V-5 with `TYPE_NOT_COVERED` (422).
 
 **Contract amended.** Section 4.3 rule 2.
+
+## Day 2 reconciliation
+
+Compared every way `NotificationRequest` can refuse a payload against contract section 6.
+
+The model refuses structurally unacceptable requests: extra fields, missing required fields, empty `policy_number`, a `loss_date` that is not a calendar date, a `claim_type` outside section 2.3 (EDGE-11 `flood`), `estimated_amount` missing (EDGE-08), not greater than zero, or not exactly two decimal places (EDGE-12). Each of those is a request that cannot be interpreted (section 2.4 and section 4.3). They all become `MALFORMED_REQUEST` with status 400.
+
+`MALFORMED_REQUEST` is already in section 6. No new code or status was added.
+
+How this was checked: `tests/unit/test_models.py` parametrizes the realistic payloads (EDGE-08, EDGE-11, EDGE-12 fail at the model; INVALID-* and EDGE-07 survive to the rules) and a violating case for every declared field constraint. All of those failures are Pydantic `ValidationError`, which this service maps to `MALFORMED_REQUEST`. Rule codes such as `POLICY_NOT_FOUND` are produced by Day 3, not by the models, and were already listed in section 6.

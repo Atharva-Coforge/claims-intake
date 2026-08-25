@@ -1,0 +1,20 @@
+The models.py file is the front door which checks if the payload is even a correct real request or not. Therefore in the status tracker we had Task class because it will check every task that is being added to the tracker or every request will get validated against that format. Therefore in simple terms, models.py is the file that checks the SHAPE of the incoming request. 
+
+And repository.py is the back door, which means that if a request was accepted, then we will store it and give it a claim number. repository.py is the file that will check the MEMORY, it will save the incoming request if it was accepted by models.py and then detect for duplicates. 
+
+Tasks:
+
+1. In models.py, NotificationRequest class, we need to write the names of all the five fields, the types, limits and house rules so this class matches the contract. 
+
+
+
+
+we should go in this order:
+
+1. NotificationRequest + its tests
+2. Policy + RuleFailure + RecordedNotification
+
+3. repository + its tests
+4. reconciliation note
+
+The repository is the notebook of claims that were accepted. It does not decide yes or no. Day 3 decides. This class only saves and looks up.

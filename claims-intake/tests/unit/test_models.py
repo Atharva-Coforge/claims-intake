@@ -1,9 +1,3 @@
-"""Unit tests for the request model boundary.
-
-A payload that fails here is malformed (contract 2.4 / 4.3). A payload that
-parses here still has to face the Day 3 rules; this file only pins the door.
-"""
-
 from __future__ import annotations
 
 import json
