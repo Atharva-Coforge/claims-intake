@@ -10,7 +10,11 @@ Day 2 assignment. Implement these against `docs/api-contract.md` sections 2 and 
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from datetime import date
+from decimal import Decimal
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class NotificationRequest(BaseModel):
@@ -26,7 +30,13 @@ class NotificationRequest(BaseModel):
     one, is Day 2's work.
     """
 
-    policy_number: str
+    model_config = ConfigDict(extra='forbid')
+
+    policy_number: str = Field(min_length=1)
+    loss_date: date
+    claim_type: Literal['collision', 'theft', 'glass', 'liability', 'weather'] 
+    estimated_amount: Decimal = Field(gt=0, decimal_places=2)
+    description: str | None = None
 
 
 class Policy(BaseModel):
@@ -38,6 +48,15 @@ class Policy(BaseModel):
     Day 2 assignment: declare the fields.
     """
 
+    model_config = ConfigDict(extra='forbid')
+
+    policy_number: str = Field(min_length=1) 
+    effective_date: date 
+    expiry_date: date
+    product: str
+    cancellation_date: date | None = None
+    limit: Decimal = Field(gt=0, decimal_places=2)
+    permitted_claim_types: list[Literal['collision', 'theft', 'glass', 'liability', 'weather']]
 
 class RecordedNotification(BaseModel):
     """A notification that passed every rule and was written.
@@ -47,3 +66,18 @@ class RecordedNotification(BaseModel):
 
     Day 2 assignment: declare the fields.
     """
+    model_config = ConfigDict(extra='forbid')
+
+    policy_number: str = Field(min_length=1)
+    loss_date: date
+    claim_type: Literal['collision', 'theft', 'glass', 'liability', 'weather'] 
+    estimated_amount: Decimal = Field(gt=0, decimal_places=2)
+    description: str | None = None
+    claim_reference: str
+
+class RuleFailure(BaseModel):
+
+    model_config = ConfigDict(frozen=True)
+
+    rule: str
+    code: str

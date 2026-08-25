@@ -6,7 +6,6 @@ Fill one row per payload. Where a payload is accepted, leave the rule, code, and
 
 ## Classification
 
-
 | Payload | Outcome  | Rule | Code                    | Status |
 | ------- | -------- | ---- | ----------------------- | ------ |
 | EDGE-01 | accepted | -    | -                       | -      |
@@ -22,9 +21,6 @@ Fill one row per payload. Where a payload is accepted, leave the rule, code, and
 | EDGE-11 | rejected | -    | `MALFORMED_REQUEST`     | 400    |
 | EDGE-12 | rejected | -    | `MALFORMED_REQUEST`     | 400    |
 
-
-
-
 ## Decision log
 
 Three payloads cannot be classified against the contract as it shipped, because the contract left a decision unmade. For each one, record the ambiguity, the decision, its authority, and the alternative you rejected.
@@ -35,40 +31,40 @@ A decision recorded here and nowhere else has not been made. Amend `docs/api-con
 
 **Payload.** EDGE-12
 
-**The ambiguity.** EDGE-12 has 3 decimal places. In all the other requests we have 2 decimal places and therefore we do not know what to do with 3 decimal places.
+**The ambiguity.** Section 2.2 says two decimal places, but the contract as shipped did not say whether extra decimal places are 400 (cannot interpret) or a valid number that should be accepted.
 
-**Decision.** Return malformed request.
+**Decision.** Reject with `MALFORMED_REQUEST` (400).
 
-**Authority.** In all the other requests we have 2 decimal places.
+**Authority.** `docs/api-contract.md` section 4.3 rule 3: amount must have exactly two decimal places; three decimals are 400 malformed.
 
-**Rejected alternative.** Accept EDGE-12. EDGE-12 has 3 decimal places and therefore we do not know what to do with 3 decimal places.
+**Rejected alternative.** Accept EDGE-12 as a normal decimal, because `3499.999` is still a number.
 
-**Contract amended.** Return malformed request.
+**Contract amended.** Section 4.3 rule 3.
 
 ### Decision 2
 
 **Payload.** EDGE-07
 
-**The ambiguity.** EDGE-07 has lower case. In all the other requests we have upper case and therefore we do not know what to do with lower case.
+**The ambiguity.** V-1 asks whether the policy exists, but the contract as shipped did not say whether matching is case-sensitive.
 
-**Decision.** Return policy not found.
+**Decision.** Reject with `POLICY_NOT_FOUND` (422).
 
-**Authority.** In all the other requests we have upper case.
+**Authority.** `docs/api-contract.md` section 4.3 rule 1: policy numbers match exactly as typed, including case. `mot-4471` is not `MOT-4471`, so V-1 fails.
 
-**Rejected alternative.** Accept EDGE-07. EDGE-07 has lower case and therefore we do not know what to do with lower case.
+**Rejected alternative.** Treat matching as case-insensitive and accept EDGE-07 as policy `MOT-4471`.
 
-**Contract amended.** Return policy not found.
+**Contract amended.** Section 4.3 rule 1.
 
 ### Decision 3
 
 **Payload.** EDGE-11
 
-**The ambiguity.** EDGE-11 has flood. In all the other requests we have collision, theft, glass, liability or weather and therefore we do not know what to do with flood.
+**The ambiguity.** `flood` is a string, so a reader could treat it as 400 (not in the 2.3 list) or as 422 `TYPE_NOT_COVERED` (V-5).
 
-**Decision.** Return malformed request.
+**Decision.** Reject with `MALFORMED_REQUEST` (400).
 
-**Authority.** In all the other requests we have collision, theft, glass, liability or weather.
+**Authority.** `docs/api-contract.md` section 4.3 rule 2: a claim type not on the vocabulary list is 400 malformed. V-5 applies only when the type is on the list but the product does not cover it.
 
-**Rejected alternative.** Accept EDGE-11. EDGE-11 has flood and therefore we do not know what to do with flood.
+**Rejected alternative.** Reject EDGE-11 under V-5 with `TYPE_NOT_COVERED` (422).
 
-**Contract amended.** Return malformed request.
+**Contract amended.** Section 4.3 rule 2.

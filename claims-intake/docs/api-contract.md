@@ -85,9 +85,10 @@ A refused notification is never recorded and no claim reference is issued. There
 
 ### 4.1 Evaluation order
 
-Rules are evaluated in ascending identifier order. Evaluation stops at
-the first failure and that rule's code is returned. V-1 short circuits:
+Evaluation stops at the first failure and that rule's code is returned. V-1 short circuits:
 if it fails, no rule that reads a policy field is evaluated.
+
+The evaulation order is V-1, V-2, V-7,V-3, V-6, V-5, V-4.
 
 ### 4.2 Rule table
 
@@ -106,13 +107,17 @@ if it fails, no rule that reads a policy field is evaluated.
 Boundaries are inclusive as written. A loss on the inception date is
 covered (WI-0142, AC-3). An amount equal to the limit is within cover.
 
+### 4.3 Short Rules that Must be Followed
+
+1. Policy numbers match exactly as typed, including case. mot-4471 is not MOT-4471.
+2. A claim type not on the five-word list is 400 malformed. That is different from V-5 (word is on the list, but this product does not cover it).
+3. Amount must have exactly two decimal places. Three decimals → 400 malformed.
+
 ## 5. Error envelope
 
-The stable parts are `code` and `message`. `detail` is not stable. 
+The stable part is `code` and `message` is not stable because we can alter it later, while `detail` part is neither globally stable nor globally free and its shape depends on `code`.
 
 ```
-
-
 {
   "code": "POLICY_NOT_FOUND",
   "message": "Policy not found.",
@@ -247,6 +252,31 @@ The stable parts are `code` and `message`. `detail` is not stable.
 ```
 
 
+
+### 5.1 Detail fields callers may rely on
+
+The JSON objects above are examples. Callers may rely only on the
+fields listed here. Extra fields may appear and must be ignored.
+A listed field is always present for that code.
+
+
+| Code                        | Guaranteed `detail` fields       |
+| --------------------------- | -------------------------------- |
+| `MALFORMED_REQUEST`         | none (`detail` may be empty)     |
+| `POLICY_NOT_FOUND`          | `policy_number`                  |
+| `LOSS_BEFORE_INCEPTION`     | `loss_date`, `effective_date`    |
+| `POLICY_CANCELLED`          | `loss_date`, `cancellation_date` |
+| `LOSS_AFTER_EXPIRY`         | `loss_date`, `expiry_date`       |
+| `AMOUNT_EXCEEDS_LIMIT`      | `estimated_amount`               |
+| `TYPE_NOT_COVERED`          | `claim_type`                     |
+| `DUPLICATE_NOTIFICATION`    | `claim_reference` (WI-0151 AC-2) |
+| `POLICY_MASTER_TIMEOUT`     | `policy_number`, `reason`        |
+| `POLICY_MASTER_UNREACHABLE` | `policy_number`, `reason`        |
+| `POLICY_MASTER_UNPARSABLE`  | `policy_number`, `reason`        |
+
+
+`message` is not in this table. Callers must not parse it.
+`rule` appears in some examples and is not guaranteed.
 
 ## 6. Status code mapping
 
