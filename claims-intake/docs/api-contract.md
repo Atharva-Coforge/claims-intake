@@ -100,125 +100,70 @@ V-7 is evaluated before V-3 because WI-0158 AC-4 requires it. A cancelled policy
 | --- | --------------------------------------------------------------------------------------------------------- | ------------------------ | ------ |
 | V-1 | `policy_number` exists in the policy master                                                               | `POLICY_NOT_FOUND`       | 422    |
 | V-2 | `loss_date` >= policy `effective_date`                                                                    | `LOSS_BEFORE_INCEPTION`  | 422    |
-| V-7 | (`cancellation_date` is null) or ([`cancellation_date` not null] and [`loss_date` < `cancellation_date`]) | `POLICY_CANCELLED`       | 422    |
+| V-7 | `cancellation_date` is null, or `loss_date` < `cancellation_date` | `POLICY_CANCELLED`       | 422    |
 | V-3 | `loss_date` <= policy `expiry_date`                                                                       | `LOSS_AFTER_EXPIRY`      | 422    |
-| V-6 | Combination of `policy_number` and `loss_date` and `claim_type` does not exist in recorded notifications  | `DUPLICATE_NOTIFICATION` | 409    |
+| V-6 | no recorded notification exists with the same `policy_number`, `loss_date`, and `claim_type`  | `DUPLICATE_NOTIFICATION` | 409    |
 | V-5 | `claim_type` permitted on the policy's product                                                            | `TYPE_NOT_COVERED`       | 422    |
 | V-4 | `estimated_amount` <= policy `limit`                                                                      | `AMOUNT_EXCEEDS_LIMIT`   | 422    |
 
 
-Boundaries are inclusive as written. A loss on the inception date is
-covered (WI-0142, AC-3). An amount equal to the limit is within cover.
+A loss on the inception date is covered: `loss_date` == policy `effective_date` satisfies V-2 (WI-0142, AC-3).
 
-### 4.3 Short Rules that Must be Followed
+A loss on the cancellation date is not covered: `loss_date` == `cancellation_date` fails V-7 (WI-0158, AC-2). Cancellation takes effect at the start of that day.
 
-1. Policy numbers match exactly as typed, including case. mot-4471 is not MOT-4471.
-2. A claim type not on the five-word list is 400 malformed. That is different from V-5 (word is on the list, but this product does not cover it).
-3. Amount must have exactly two decimal places. Three decimals → 400 malformed.
+A loss on the expiry date is covered: `loss_date` == policy `expiry_date` satisfies V-3.
+An amount equal to the limit is within cover: `estimated_amount` == policy `limit` satisfies V-4.
+
+A previous submission that was refused is not a duplicate: it was never recorded, so V-6 does not match it (WI-0151, AC-3).
+
+### 4.3 Interpretation rules
+
+These close readings that sections 2.2, 2.3, and 2.4 left open. A payload that fails one of them is refused before the rule table, except for exact policy-number match, which is how V-1 is evaluated.
+
+`policy_number` is compared to the policy master character for character, including case. Section 2.2 requires the identifier as held in the master, so `mot-4471` is not `MOT-4471`. That comparison fails V-1 and returns `POLICY_NOT_FOUND`. Per WI-0142 AC-4, no later rule is evaluated.
+
+A `claim_type` that is not one of the five values in section 2.3 cannot be interpreted. Section 2.4 maps that to status 400 and `MALFORMED_REQUEST`. V-5 is a different case: the value is in section 2.3, but it is not permitted on that policy's product.
+
+`estimated_amount` must have exactly two decimal places, as section 2.2 states. Extra fractional digits mean the body cannot be interpreted. Section 2.4 maps that to status 400 and `MALFORMED_REQUEST`. It is not a 422 business-rule failure.
 
 ## 5. Error envelope
 
-The stable part is `code` and `message` is not stable because we can alter it later, while `detail` part is neither globally stable nor globally free and its shape depends on `code`.
+Every refusal uses this envelope:
 
-```
 {
-  "code": "POLICY_NOT_FOUND",
-  "message": "Policy not found.",
-  "detail": {
-    "rule": "V-1",
-    "policy_number": "MOT-9999"
-  }
+  "code": "...",
+  "message": "...",
+  "detail": {}
 }
-```
 
-```
+`code` is a stable promise. Callers branch on it. Renaming a code is a breaking change. A code the caller does not recognize is handled by the default path in section 1.
+
+`message` is not a stable promise. It is for a person to read. Callers must not parse it. The wording can change without a version increment.
+
+`detail` is neither globally stable nor globally free. Its keys depend on `code`. Callers may rely only on the keys listed for that code in section 5.1. Extra keys may appear and must be ignored.
+
+The three examples below are different kinds of failure. They are not three copies of the same handler.
+
+A rule failure. The request was interpreted and a policy was read. A rule in section 4.2 decided. `detail` carries the values that rule compared.
 
 {
   "code": "LOSS_BEFORE_INCEPTION",
   "message": "Loss date precedes policy inception.",
   "detail": {
-    "rule": "V-2",
     "loss_date": "2026-02-11",
     "effective_date": "2026-03-01"
   }
 }
-```
 
-```
-
-{
-  "code": "LOSS_AFTER_EXPIRY",
-  "message": "Loss date comes after policy expiry date.",
-  "detail": {
-    "rule": "V-3",
-    "loss_date": "2026-02-11",
-    "expiry_date": "2026-01-01"
-  }
-}
-```
-
-```
-
-{
-  "code": "AMOUNT_EXCEEDS_LIMIT",
-  "message": "The amount requested for the claim exceeds the claim limit.",
-  "detail": {
-    "rule": "V-4",
-    "estimated_amount": "29000.00"
-  }
-}
-```
-
-```
-
-{
-  "code": "TYPE_NOT_COVERED",
-  "message": "Loss due to this type is not claimable.",
-  "detail": {
-    "rule": "V-5",
-    "claim_type": "collision"
-  }
-}
-```
-
-```
-
-{
-  "code": "DUPLICATE_NOTIFICATION",
-  "message": "Duplicate claim request received.",
-  "detail": {
-    "rule": "V-6",
-    "policy_number": "MOT-4471",
-    "loss_date": "2026-04-02",
-    "claim_type": "collision",
-    "claim_reference": "CLM-2026-000317"
-  }
-}
-```
-
-```
-
-{
-  "code": "POLICY_CANCELLED",
-  "message": "Policy was cancelled before expiry date.",
-  "detail": {
-    "rule": "V-7",
-    "loss_date": "2026-02-11",
-    "cancellation_date": "2026-01-01"
-  }
-}
-```
-
-```
+A request the service could not interpret. No rule in section 4.2 ran. `detail` has no guaranteed keys.
 
 {
   "code": "MALFORMED_REQUEST",
   "message": "The request cannot be interpreted.",
   "detail": {}
 }
-```
 
-```
+A policy master that did not answer. This is not `POLICY_NOT_FOUND`: the master did not produce a usable result. No rule decided, so `detail` has no `rule` field.
 
 {
   "code": "POLICY_MASTER_TIMEOUT",
@@ -228,33 +173,6 @@ The stable part is `code` and `message` is not stable because we can alter it la
     "reason": "timeout"
   }
 }
-```
-
-```
-
-{
-  "code": "POLICY_MASTER_UNREACHABLE",
-  "message": "The policy master could not be reached.",
-  "detail": {
-    "policy_number": "MOT-4471",
-    "reason": "unreachable"
-  }
-}
-```
-
-```
-
-{
-  "code": "POLICY_MASTER_UNPARSABLE",
-  "message": "The policy master returned a body this service could not read.",
-  "detail": {
-    "policy_number": "MOT-4471",
-    "reason": "unparsable"
-  }
-}
-```
-
-
 
 ### 5.1 Detail fields callers may rely on
 
@@ -279,7 +197,7 @@ A listed field is always present for that code.
 
 
 `message` is not in this table. Callers must not parse it.
-`rule` appears in some examples and is not guaranteed.
+`rule` may appear in `detail` and is not guaranteed.
 
 ## 6. Status code mapping
 
@@ -298,5 +216,3 @@ A listed field is always present for that code.
 | `POLICY_MASTER_TIMEOUT`     | 504    |
 | `POLICY_MASTER_UNREACHABLE` | 503    |
 | `POLICY_MASTER_UNPARSABLE`  | 502    |
-
-

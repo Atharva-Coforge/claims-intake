@@ -29,45 +29,45 @@ A decision recorded here and nowhere else has not been made. Amend `docs/api-con
 
 ### Decision 1
 
-**Payload.** EDGE-12
+**Payload.** EDGE-07
 
-**The ambiguity.** Section 2.2 says two decimal places, but the contract as shipped did not say whether extra decimal places are 400 (cannot interpret) or a valid number that should be accepted.
+**The ambiguity.** V-1 asks whether `policy_number` exists in the policy master. The contract as shipped did not say whether that comparison is case-sensitive, so `mot-4471` could be treated as `MOT-4471` and accepted.
 
-**Decision.** Reject with `MALFORMED_REQUEST` (400).
+**Decision.** Reject with `POLICY_NOT_FOUND` (422). No later rule is evaluated.
 
-**Authority.** `docs/api-contract.md` section 4.3 rule 3: amount must have exactly two decimal places; three decimals are 400 malformed.
+**Authority.** Section 2.2: the identifier as held in the policy master. WI-0142 AC-4: a policy number that is not found is `POLICY_NOT_FOUND` and is not evaluated against later rules.
 
-**Rejected alternative.** Accept EDGE-12 as a normal decimal, because `3499.999` is still a number.
+**Rejected alternative.** Case-insensitive match, treat EDGE-07 as policy `MOT-4471`, and accept it.
 
-**Contract amended.** Section 4.3 rule 3.
+**Contract amended.** Section 4.3: comparison is character for character, including case.
 
 ### Decision 2
 
-**Payload.** EDGE-07
-
-**The ambiguity.** V-1 asks whether the policy exists, but the contract as shipped did not say whether matching is case-sensitive.
-
-**Decision.** Reject with `POLICY_NOT_FOUND` (422).
-
-**Authority.** `docs/api-contract.md` section 4.3 rule 1: policy numbers match exactly as typed, including case. `mot-4471` is not `MOT-4471`, so V-1 fails.
-
-**Rejected alternative.** Treat matching as case-insensitive and accept EDGE-07 as policy `MOT-4471`.
-
-**Contract amended.** Section 4.3 rule 1.
-
-### Decision 3
-
 **Payload.** EDGE-11
 
-**The ambiguity.** `flood` is a string, so a reader could treat it as 400 (not in the 2.3 list) or as 422 `TYPE_NOT_COVERED` (V-5).
+**The ambiguity.** `flood` is a string. A reader could treat it as 400 (not in the section 2.3 list) or as 422 `TYPE_NOT_COVERED` (V-5).
 
 **Decision.** Reject with `MALFORMED_REQUEST` (400).
 
-**Authority.** `docs/api-contract.md` section 4.3 rule 2: a claim type not on the vocabulary list is 400 malformed. V-5 applies only when the type is on the list but the product does not cover it.
+**Authority.** Section 2.3 is a closed vocabulary. Section 2.4: a request that cannot be interpreted is 400; 422 is for a request that was interpreted and is not admissible. V-5 applies only when the value is in section 2.3 but is not permitted on that product.
 
 **Rejected alternative.** Reject EDGE-11 under V-5 with `TYPE_NOT_COVERED` (422).
 
-**Contract amended.** Section 4.3 rule 2.
+**Contract amended.** Section 4.3: a `claim_type` outside section 2.3 cannot be interpreted.
+
+### Decision 3
+
+**Payload.** EDGE-12
+
+**The ambiguity.** Section 2.2 says two decimal places, but the contract as shipped did not say whether extra fractional digits are 400 (cannot interpret) or a number the service should accept.
+
+**Decision.** Reject with `MALFORMED_REQUEST` (400).
+
+**Authority.** Section 2.2: United States dollars, two decimal places. Section 2.4: a value the service cannot interpret is 400, not a 422 business-rule failure.
+
+**Rejected alternative.** Accept `3499.999` as an ordinary decimal.
+
+**Contract amended.** Section 4.3: extra fractional digits mean the body cannot be interpreted.
 
 ## Day 2 reconciliation
 
