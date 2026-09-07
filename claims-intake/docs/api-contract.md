@@ -85,10 +85,13 @@ A refused notification is never recorded and no claim reference is issued. There
 
 ### 4.1 Evaluation order
 
-Evaluation stops at the first failure and that rule's code is returned. V-1 short circuits:
-if it fails, no rule that reads a policy field is evaluated.
+Rules are not evaluated in identifier order. They are evaluated in this order: V-1, V-2, V-7, V-3, V-6, V-5, V-4.
 
-The evaulation order is V-1, V-2, V-7,V-3, V-6, V-5, V-4.
+Evaluation stops at the first failure. The caller receives that rule's code and status only. Later rules are not evaluated and their codes are not returned, even if they would also fail.
+
+V-1 short-circuits: if it fails, no rule that reads a policy field is evaluated (WI-0142, AC-4). Reporting a date or amount failure for a policy number that does not exist would be a false statement about the caller's data.
+
+V-7 is evaluated before V-3 because WI-0158 AC-4 requires it. A cancelled policy whose loss also falls after the original expiry must be reported as `POLICY_CANCELLED`, not `LOSS_AFTER_EXPIRY`. Identifier order would evaluate V-3 first and violate that criterion, which is why identifier order is not used.
 
 ### 4.2 Rule table
 
