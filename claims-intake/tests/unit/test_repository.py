@@ -1,8 +1,7 @@
-"""Unit tests for recorded-notification storage.
+"""Unit tests for recorded-claim storage.
 
-The repository saves accepted requests and answers WI-0151's duplicate query.
-It does not decide whether a request should be saved; tests that need a
-rejection simply never call record.
+Recording, reference generation, and duplicate lookup are tested separately.
+The repository never writes a refusal: `record` accepts `ClaimRecord` only.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ from typing import Literal
 
 import pytest
 
-from claims.models import NotificationRequest
+from claims.models import ClaimRecord, NotificationRequest, RuleFailure
 from claims.repository import NotificationRepository
 
 CLAIM_REFERENCE_PATTERN = re.compile(r"^CLM-\d{4}-\d{6}$")
@@ -43,6 +42,45 @@ def make_request(
     )
 
 
+def claim_from_request(
+    repository: NotificationRepository, request: NotificationRequest
+) -> ClaimRecord:
+    return ClaimRecord(
+        policy_number=request.policy_number,
+        loss_date=request.loss_date,
+        claim_type=request.claim_type,
+        estimated_amount=request.estimated_amount,
+        description=request.description,
+        claim_reference=repository.issue_claim_reference(),
+    )
+
+
+@pytest.mark.parametrize(
+    "unused_index",
+    [
+        pytest.param(0, id="first-reference"),
+        pytest.param(1, id="second-reference"),
+        pytest.param(2, id="third-reference"),
+    ],
+)
+def test_issue_claim_reference_matches_contract_format(
+    repository: NotificationRepository, unused_index: int
+) -> None:
+    for _ in range(unused_index):
+        repository.issue_claim_reference()
+    reference = repository.issue_claim_reference()
+    assert CLAIM_REFERENCE_PATTERN.fullmatch(reference)
+    year = datetime.now(tz=UTC).date().year
+    assert reference.startswith(f"CLM-{year}-")
+
+
+def test_issue_claim_reference_is_unique_and_never_reissued(
+    repository: NotificationRepository,
+) -> None:
+    issued = [repository.issue_claim_reference() for _ in range(3)]
+    assert len(issued) == len(set(issued))
+
+
 @pytest.mark.parametrize(
     "request_",
     [
@@ -51,18 +89,16 @@ def make_request(
         pytest.param(make_request(description=None), id="no-description"),
     ],
 )
-def test_record_issues_claim_reference_matching_contract(
+def test_record_stores_the_claim_record(
     repository: NotificationRepository, request_: NotificationRequest
 ) -> None:
-    recorded = repository.record(request_)
-    assert CLAIM_REFERENCE_PATTERN.fullmatch(recorded.claim_reference)
-    year = datetime.now(tz=UTC).date().year
-    assert recorded.claim_reference.startswith(f"CLM-{year}-")
-    assert recorded.policy_number == request_.policy_number
-    assert recorded.loss_date == request_.loss_date
-    assert type(recorded.loss_date) is date
-    assert recorded.estimated_amount == request_.estimated_amount
-    assert type(recorded.estimated_amount) is Decimal
+    claim = claim_from_request(repository, request_)
+    stored = repository.record(claim)
+    assert stored is claim
+    assert stored.policy_number == request_.policy_number
+    assert stored.loss_date == request_.loss_date
+    assert type(stored.loss_date) is date
+    assert type(stored.estimated_amount) is Decimal
 
 
 @pytest.mark.parametrize(
@@ -85,13 +121,13 @@ def test_record_issues_claim_reference_matching_contract(
         ),
     ],
 )
-def test_each_recorded_notification_gets_a_unique_claim_reference(
+def test_recorded_claim_records_keep_distinct_references(
     repository: NotificationRepository,
     first: NotificationRequest,
     second: NotificationRequest,
 ) -> None:
-    recorded_first = repository.record(first)
-    recorded_second = repository.record(second)
+    recorded_first = repository.record(claim_from_request(repository, first))
+    recorded_second = repository.record(claim_from_request(repository, second))
     assert recorded_first.claim_reference != recorded_second.claim_reference
 
 
@@ -108,7 +144,7 @@ def test_each_recorded_notification_gets_a_unique_claim_reference(
 def test_find_matching_returns_the_record_when_all_three_fields_agree(
     repository: NotificationRepository, request_: NotificationRequest
 ) -> None:
-    recorded = repository.record(request_)
+    recorded = repository.record(claim_from_request(repository, request_))
     found = repository.find_matching(
         request_.policy_number,
         request_.loss_date,
@@ -132,10 +168,30 @@ def test_find_matching_is_not_a_duplicate_when_only_two_fields_agree(
     lookup_date: date,
     lookup_type: ClaimType,
 ) -> None:
-    repository.record(make_request())
+    repository.record(claim_from_request(repository, make_request()))
     assert (
         repository.find_matching(lookup_policy, lookup_date, lookup_type) is None
     )
+
+
+@pytest.mark.parametrize(
+    "not_a_claim",
+    [
+        pytest.param(make_request(policy_number="MOT-9999"), id="unknown-policy-request"),
+        pytest.param(make_request(policy_number="mot-4471"), id="EDGE-07-lowercase-request"),
+        pytest.param(
+            RuleFailure(rule="V-1", code="POLICY_NOT_FOUND"),
+            id="rule-failure",
+        ),
+    ],
+)
+def test_record_stores_only_claim_records(
+    repository: NotificationRepository,
+    not_a_claim: NotificationRequest | RuleFailure,
+) -> None:
+    """WI-0151 AC-3: a refusal is not a ClaimRecord, so it cannot be stored."""
+    with pytest.raises(TypeError, match="ClaimRecord only"):
+        repository.record(not_a_claim)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -149,20 +205,23 @@ def test_find_matching_is_not_a_duplicate_when_only_two_fields_agree(
         ),
     ],
 )
-def test_rejected_notification_is_never_recorded_so_resubmit_is_not_duplicate(
+def test_find_matching_cannot_see_a_request_that_was_never_a_claim_record(
     repository: NotificationRepository, rejected: NotificationRequest
 ) -> None:
-    """WI-0151 AC-3: a refusal is not written, so it cannot be duplicated."""
-    repository.record(make_request(policy_number="MOT-4472", claim_type="theft"))
-    first_lookup = repository.find_matching(
-        rejected.policy_number,
-        rejected.loss_date,
-        rejected.claim_type,
+    """WI-0151 AC-3: find_matching reads ClaimRecords only."""
+    repository.record(
+        claim_from_request(
+            repository,
+            make_request(policy_number="MOT-4472", claim_type="theft"),
+        )
     )
-    resubmit_lookup = repository.find_matching(
-        rejected.policy_number,
-        rejected.loss_date,
-        rejected.claim_type,
+    failure = RuleFailure(rule="V-1", code="POLICY_NOT_FOUND")
+    assert not isinstance(failure, ClaimRecord)
+    assert (
+        repository.find_matching(
+            rejected.policy_number,
+            rejected.loss_date,
+            rejected.claim_type,
+        )
+        is None
     )
-    assert first_lookup is None
-    assert resubmit_lookup is None

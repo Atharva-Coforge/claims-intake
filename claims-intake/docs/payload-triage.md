@@ -71,10 +71,30 @@ A decision recorded here and nowhere else has not been made. Amend `docs/api-con
 
 ## Day 2 reconciliation
 
-Compared every way `NotificationRequest` can refuse a payload against contract section 6.
+Every refusal `NotificationRequest` can produce was listed from the model fields and from `test_notification_request_rejects_each_declared_constraint`, then checked against section 6.
 
-The model refuses structurally unacceptable requests: extra fields, missing required fields, empty `policy_number`, a `loss_date` that is not a calendar date, a `claim_type` outside section 2.3 (EDGE-11 `flood`), `estimated_amount` missing (EDGE-08), not greater than zero, or not exactly two decimal places (EDGE-12). Each of those is a request that cannot be interpreted (section 2.4 and section 4.3). They all become `MALFORMED_REQUEST` with status 400.
+| What the model refuses | Test id / payload | Section 6 code | Status | Already present? |
+| --- | --- | --- | --- | --- |
+| Extra field | `extra-field-forbidden` | `MALFORMED_REQUEST` | 400 | yes |
+| Missing `policy_number` | `missing-policy-number` | `MALFORMED_REQUEST` | 400 | yes |
+| Empty `policy_number` | `empty-policy-number` | `MALFORMED_REQUEST` | 400 | yes |
+| Missing `loss_date` | `missing-loss-date` | `MALFORMED_REQUEST` | 400 | yes |
+| `loss_date` not `YYYY-MM-DD` | `loss-date-not-yyyy-mm-dd` | `MALFORMED_REQUEST` | 400 | yes |
+| Missing `claim_type` | `missing-claim-type` | `MALFORMED_REQUEST` | 400 | yes |
+| `claim_type` not in section 2.3 | `claim-type-not-in-vocabulary`, EDGE-11 | `MALFORMED_REQUEST` | 400 | yes |
+| Empty `claim_type` | `empty-claim-type` | `MALFORMED_REQUEST` | 400 | yes |
+| Missing `estimated_amount` | `missing-estimated-amount`, EDGE-08 | `MALFORMED_REQUEST` | 400 | yes |
+| Amount not greater than zero | `amount-zero`, `amount-negative` | `MALFORMED_REQUEST` | 400 | yes |
+| Amount not two decimal places | `amount-three-decimal-places`, EDGE-12 | `MALFORMED_REQUEST` | 400 | yes |
 
-`MALFORMED_REQUEST` is already in section 6. No new code or status was added.
+Invalid JSON is refused before the model. Section 2.4 already maps that to the same code and status.
 
-How this was checked: `tests/unit/test_models.py` parametrizes the realistic payloads (EDGE-08, EDGE-11, EDGE-12 fail at the model; INVALID-* and EDGE-07 survive to the rules) and a violating case for every declared field constraint. All of those failures are Pydantic `ValidationError`, which this service maps to `MALFORMED_REQUEST`. Rule codes such as `POLICY_NOT_FOUND` are produced by Day 3, not by the models, and were already listed in section 6.
+`Policy`, `ClaimRecord`, and `RuleFailure` can also raise `ValidationError`. Those are not HTTP responses. The portal never posts a `Policy` or a `ClaimRecord`.
+
+Rule codes (`POLICY_NOT_FOUND`, `POLICY_CANCELLED`, `DUPLICATE_NOTIFICATION`, and the rest of section 4.2) are produced by Day 3, not by these models. They were already in section 6, as were the three policy-master codes.
+
+**Found.** No gap. Every `NotificationRequest` refusal is `MALFORMED_REQUEST` / 400.
+
+**Added.** Nothing. Section 6 was not changed.
+
+**How this was checked.** The accept/reject split in `tests/unit/test_models.py` was walked payload by payload: EDGE-08, EDGE-11, and EDGE-12 fail at the model; every `INVALID-*` row and EDGE-07 survive to the rules. Each declared field constraint has a named violating case in that file. Each case above was then looked up in section 6.
