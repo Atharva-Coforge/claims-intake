@@ -5,14 +5,17 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal, cast
+
 import pytest
 from pydantic import ValidationError
 
 from claims.models import (
+    ClaimRecord,
+    ErrorCode,
     NotificationRequest,
     Policy,
-    RecordedNotification,
     RuleFailure,
+    RuleId,
 )
 from claims.policy_client import StubPolicyClient
 
@@ -76,20 +79,20 @@ def policy_with(**changes: object) -> dict[str, object]:
     return payload
 
 
-def well_formed_recorded() -> dict[str, object]:
+def well_formed_claim_record() -> dict[str, object]:
     payload = well_formed()
     payload["claim_reference"] = "CLM-2026-000317"
     return payload
 
 
-def recorded_without(field_name: str) -> dict[str, object]:
-    payload = well_formed_recorded()
+def claim_record_without(field_name: str) -> dict[str, object]:
+    payload = well_formed_claim_record()
     del payload[field_name]
     return payload
 
 
-def recorded_with(**changes: object) -> dict[str, object]:
-    payload = well_formed_recorded()
+def claim_record_with(**changes: object) -> dict[str, object]:
+    payload = well_formed_claim_record()
     payload.update(changes)
     return payload
 
@@ -225,7 +228,6 @@ def test_accepted_request_stores_date_and_decimal_not_strings(
             ),
             id="named-perils-subset",
         ),
-        pytest.param(policy_without("cancellation_date"), id="omitted-cancellation-is-none"),
     ],
 )
 def test_policy_accepts_well_formed_records(payload: dict[str, object]) -> None:
@@ -241,6 +243,7 @@ def test_policy_accepts_well_formed_records(payload: dict[str, object]) -> None:
         pytest.param(policy_without("expiry_date"), id="missing-expiry-date"),
         pytest.param(policy_without("limit"), id="missing-limit"),
         pytest.param(policy_without("permitted_claim_types"), id="missing-permitted-types"),
+        pytest.param(policy_without("cancellation_date"), id="omitted-cancellation-date"),
         pytest.param(policy_with(policy_number=""), id="empty-policy-number"),
         pytest.param(policy_with(effective_date="not-a-date"), id="effective-date-garbage"),
         pytest.param(policy_with(expiry_date="not-a-date"), id="expiry-date-garbage"),
@@ -298,7 +301,7 @@ def test_policy_builds_from_policy_record_with_date_and_decimal(
         pytest.param("V-6", "DUPLICATE_NOTIFICATION", id="duplicate"),
     ],
 )
-def test_rule_failure_keeps_rule_and_code_separate(rule: str, code: str) -> None:
+def test_rule_failure_keeps_rule_and_code_separate(rule: RuleId, code: ErrorCode) -> None:
     failure = RuleFailure(rule=rule, code=code)
     assert failure.rule == rule
     assert failure.code == code
@@ -313,6 +316,30 @@ def test_rule_failure_keeps_rule_and_code_separate(rule: str, code: str) -> None
     ],
 )
 def test_rule_failure_requires_both_fields(payload: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        RuleFailure.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(
+            {"rule": "POLICY_NOT_FOUND", "code": "V-1"},
+            id="rule-and-code-swapped",
+        ),
+        pytest.param(
+            {"rule": "V-8", "code": "POLICY_NOT_FOUND"},
+            id="rule-not-in-section-4-2",
+        ),
+        pytest.param(
+            {"rule": "V-1", "code": "MALFORMED_REQUEST"},
+            id="code-is-not-a-rule-code",
+        ),
+    ],
+)
+def test_rule_failure_rejects_values_outside_their_vocabularies(
+    payload: dict[str, object],
+) -> None:
     with pytest.raises(ValidationError):
         RuleFailure.model_validate(payload)
 
@@ -333,47 +360,59 @@ def test_rule_failure_is_immutable(field: str, value: str) -> None:
 @pytest.mark.parametrize(
     "payload",
     [
-        pytest.param(well_formed_recorded(), id="full-recorded-notification"),
-        pytest.param(recorded_with(description=None), id="description-null"),
-        pytest.param(recorded_without("description"), id="description-omitted"),
+        pytest.param(well_formed_claim_record(), id="full-claim-record"),
+        pytest.param(claim_record_with(description=None), id="description-null"),
+        pytest.param(claim_record_without("description"), id="description-omitted"),
     ],
 )
-def test_recorded_notification_accepts_well_formed_records(
+def test_claim_record_accepts_well_formed_records(
     payload: dict[str, object],
 ) -> None:
-    RecordedNotification.model_validate(payload)
+    ClaimRecord.model_validate(payload)
 
 
 @pytest.mark.parametrize(
     "payload",
     [
-        pytest.param(recorded_without("policy_number"), id="missing-policy-number"),
-        pytest.param(recorded_without("loss_date"), id="missing-loss-date"),
-        pytest.param(recorded_without("claim_type"), id="missing-claim-type"),
-        pytest.param(recorded_without("estimated_amount"), id="missing-amount"),
-        pytest.param(recorded_without("claim_reference"), id="missing-claim-reference"),
-        pytest.param(recorded_with(policy_number=""), id="empty-policy-number"),
-        pytest.param(recorded_with(claim_type="flood"), id="claim-type-not-in-vocabulary"),
-        pytest.param(recorded_with(estimated_amount=Decimal("0.00")), id="amount-zero"),
+        pytest.param(claim_record_without("policy_number"), id="missing-policy-number"),
+        pytest.param(claim_record_without("loss_date"), id="missing-loss-date"),
+        pytest.param(claim_record_without("claim_type"), id="missing-claim-type"),
+        pytest.param(claim_record_without("estimated_amount"), id="missing-amount"),
+        pytest.param(claim_record_without("claim_reference"), id="missing-claim-reference"),
         pytest.param(
-            recorded_with(estimated_amount=Decimal("3499.999")),
+            claim_record_with(claim_reference="CLAIM-2026-000317"),
+            id="claim-reference-wrong-prefix",
+        ),
+        pytest.param(
+            claim_record_with(claim_reference="CLM-26-000317"),
+            id="claim-reference-year-not-four-digits",
+        ),
+        pytest.param(
+            claim_record_with(claim_reference="CLM-2026-317"),
+            id="claim-reference-sequence-not-six-digits",
+        ),
+        pytest.param(claim_record_with(policy_number=""), id="empty-policy-number"),
+        pytest.param(claim_record_with(claim_type="flood"), id="claim-type-not-in-vocabulary"),
+        pytest.param(claim_record_with(estimated_amount=Decimal("0.00")), id="amount-zero"),
+        pytest.param(
+            claim_record_with(estimated_amount=Decimal("3499.999")),
             id="amount-three-decimals",
         ),
-        pytest.param(recorded_with(unexpected="nope"), id="extra-field-forbidden"),
+        pytest.param(claim_record_with(unexpected="nope"), id="extra-field-forbidden"),
     ],
 )
-def test_recorded_notification_rejects_each_declared_constraint(
+def test_claim_record_rejects_each_declared_constraint(
     payload: dict[str, object],
 ) -> None:
     with pytest.raises(ValidationError):
-        RecordedNotification.model_validate(payload)
+        ClaimRecord.model_validate(payload)
 
 
 @pytest.mark.parametrize(
     ("payload", "expected_date", "expected_amount", "expected_reference"),
     [
         pytest.param(
-            well_formed_recorded(),
+            well_formed_claim_record(),
             date(2026, 4, 2),
             Decimal("4200.00"),
             "CLM-2026-000317",
@@ -381,13 +420,13 @@ def test_recorded_notification_rejects_each_declared_constraint(
         ),
     ],
 )
-def test_recorded_notification_stores_date_decimal_and_reference(
+def test_claim_record_stores_date_decimal_and_reference(
     payload: dict[str, object],
     expected_date: date,
     expected_amount: Decimal,
     expected_reference: str,
 ) -> None:
-    recorded = RecordedNotification.model_validate(payload)
+    recorded = ClaimRecord.model_validate(payload)
     assert recorded.loss_date == expected_date
     assert type(recorded.loss_date) is date
     assert recorded.estimated_amount == expected_amount

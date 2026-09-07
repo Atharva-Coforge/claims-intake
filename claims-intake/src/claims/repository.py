@@ -14,23 +14,23 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from claims.models import NotificationRequest, RecordedNotification
+from claims.models import ClaimRecord, NotificationRequest
 
 
 class NotificationRepository:
     """Stores recorded notifications and issues claim references."""
 
     def __init__(self) -> None:
-        self._records: list[RecordedNotification] = []
+        self._records: list[ClaimRecord] = []
         self._next_sequence: int = 1
 
-    def record(self, notification: NotificationRequest) -> RecordedNotification:
+    def record(self, notification: NotificationRequest) -> ClaimRecord:
         """Write a notification and return it with its issued claim reference.
 
         The reference format is fixed by contract section 3. References are unique
         and are never reissued.
         """
-        recorded = RecordedNotification(
+        recorded = ClaimRecord(
             policy_number=notification.policy_number,
             loss_date=notification.loss_date,
             claim_type=notification.claim_type,
@@ -46,7 +46,7 @@ class NotificationRepository:
         policy_number: str,
         loss_date: date,
         claim_type: str,
-    ) -> RecordedNotification | None:
+    ) -> ClaimRecord | None:
         """Return an existing recorded notification matching all three values.
 
         `WI-0151` AC-1 fixes which fields constitute a match. AC-3 is the reason
