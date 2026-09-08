@@ -1,20 +1,266 @@
-The models.py file is the front door which checks if the payload is even a correct real request or not. Therefore in the status tracker we had Task class because it will check every task that is being added to the tracker or every request will get validated against that format. Therefore in simple terms, models.py is the file that checks the SHAPE of the incoming request. 
+What this repo is:
 
-And repository.py is the back door, which means that if a request was accepted, then we will store it and give it a claim number. repository.py is the file that will check the MEMORY, it will save the incoming request if it was accepted by models.py and then detect for duplicates. 
-
-Tasks:
-
-1. In models.py, NotificationRequest class, we need to write the names of all the five fields, the types, limits and house rules so this class matches the contract. 
+The project you care about is claims-intake/. It is a First Notice of Loss (FNOL) service: the claims portal posts a notification, this service checks whether it is well-formed and admissible, then either records it and issues a claim reference (CLM-YYYY-NNNNNN) or refuses it with a specific reason.
 
 
+DATA FLOW:
+
+Portal POST /notifications
+        ↓
+models.py          ← is this even a valid request? (shape)
+        ↓
+policy_client.py   ← look up the policy (external system, stubbed)
+        ↓
+service.py         ← do the business rules say yes? (Day 3)
+        ↓
+repository.py      ← if yes: save + issue CLM-... (memory)
+        ↓
+api/routes.py      ← turn that into HTTP 201 / 400 / 422 / 409 (Day 4)
 
 
-we should go in this order:
+File 1: docs/api-contract.md
+This is the most important file in the whole repo. Other teams (the website / portal) also read it. So it must be exact.
 
-1. NotificationRequest + its tests
-2. Policy + RuleFailure + RecordedNotification
+Section 1 — What this service does, and what it does not do
+Does:
 
-3. repository + its tests
-4. reconciliation note
+Take a report from the portal.
+Check the report against the policy list and the rules.
+If OK: save it and give a claim number like CLM-2026-000317.
+If not OK: refuse it and give a clear reason.
+Does not:
 
-The repository is the notebook of claims that were accepted. It does not decide yes or no. Day 3 decides. This class only saves and looks up.
+Decide payout
+Set aside money
+Do anything after the report is accepted
+Two other important ideas in section 1:
+
+The policy list is a different system.
+This service can only read policies. It cannot create or change a policy. That other system is called the policy master. In this week it is faked by data/policies.json.
+
+“Policy not found” is not the same as “policy system is down.”
+
+Policy not found = you typed a number that does not exist. Your data is wrong.
+Policy system is down = the other computer did not answer. You did nothing wrong. Try again later.
+Those two must become different error codes, because the portal must show different messages and do different things.
+
+The portal calls: 
+POST /notifications
+
+The body of the request may have only these 5 fields:
+1. policy_number: Required
+2. loss_date: Required
+3. claim_type: Required
+4. estimated_amount: Required
+5. description: Not Required
+
+Allowed claim_type values: collision, theft, glass, liability, weather
+
+
+The most important idea in the whole contract: 400 vs 422:
+
+400 = we cannot even read / understand the form.
+The portal’s code is wrong, or the JSON is broken.
+
+400 = we cannot even read / understand the form. The portal’s code is wrong, or the JSON is broken. Error code: MALFORMED_REQUEST
+
+422 = we understood the form, but the content is not allowed. A person typed something that fails a business rule. Error codes: POLICY_NOT_FOUND, LOSS_BEFORE_INCEPTION, and so on.
+
+What Success Looks like:
+If every rule passes, the service:
+
+1. Saves the report
+2. Creates a claim number
+3. Returns HTTP 201 (Created)
+
+{
+  "claim_reference": "CLM-2026-000317",
+  "status": "recorded"
+}
+
+We follow the All or nothing principle.
+If the report is refused, nothing is saved and no claim number is given. There is no “half saved” state.
+
+Boundary days (the “same day” cases):
+
+- Accident on the start day → allowed (cover starts that morning)
+- Accident on the cancel day → not allowed (cancel starts that morning)
+- Accident on the end day → allowed
+- Amount exactly equal to the limit → allowed
+- A report that was refused before is not a duplicate, because it was never saved
+
+
+Every refusal looks like this:
+
+{
+  "code": "LOSS_BEFORE_INCEPTION",
+  "message": "Loss date precedes policy inception.",
+  "detail": {
+    "loss_date": "2026-02-11",
+    "effective_date": "2026-03-01"
+  }
+}
+
+
+Brief Data Flow:
+
+Portal sends JSON
+        ↓
+Is the form readable?          ← Day 2, models.py
+  no  → 400 MALFORMED_REQUEST
+  yes ↓
+Does a business rule fail?     ← Day 3, service.py
+  yes → 422 / 409 + a rule code
+  no  ↓
+Save it and give CLM-...       ← Day 2, repository.py
+        ↓
+Return 201                     ← Day 4, routes.py
+
+
+models.py is the frontdoor. It answers only one question, Can we even read this form?
+
+If no → stop. Later that becomes 400 MALFORMED_REQUEST.
+If yes → pass a clean Python object to Day 3. Day 3 then asks: “Is this story allowed?”
+
+models.py does not check “does this policy exist?” or “is the amount too high?” Those are rules. Rules live in service.py.
+
+What is a “model” here?
+A model is a form template written in Python.
+
+This project uses Pydantic (BaseModel). When you do:
+
+NotificationRequest.model_validate(some_json)
+Pydantic tries to build an object. Two outcomes:
+
+- Success → you get a NotificationRequest with real Python types (date, Decimal, not leftover strings).
+- Fail → it raises ValidationError. “This does not match the template.”
+That ValidationError is not an HTTP response. Day 4 will turn it into 400. Today we only care: accept or raise.
+
+We have 4 templates and 2 word lists:
+RuleId / ErrorCode: two lists of allowed words
+NotificationRequest: the form the portal sends (front door)
+Policy: a policy as THIS service uses it (what rules compare against)
+ClaimRecord: an accepted report + claim number (what we save)
+RuleFailure: “rule V-2 said no, code is …” (a frozen decision)
+
+
+MODELS.PY:
+
+Class 1: NotificationRequest — the incoming form
+
+model_config = ConfigDict(extra='forbid')
+
+policy_number: str = Field(min_length=1)
+loss_date: date
+claim_type: Literal['collision', 'theft', 'glass', 'liability', 'weather'] 
+estimated_amount: Decimal = Field(gt=0, decimal_places=2)
+description: str | None = None
+
+extra='forbid' means that If the JSON has a field that is not in this list (unexpected, a typo, anything), reject.
+Contract: “A misspelled field is a bug in the caller. Do not ignore it and save anyway.”
+
+
+Class 2: Policy — a policy as this service uses it
+The other system (policy_client.py) returns a plain object called PolicyRecord. That is “how the other computer stores it.”
+
+This service then builds a Policy. That is “the fields our rules need to compare.”
+
+policy_number: str = Field(min_length=1) 
+effective_date: date 
+expiry_date: date
+product: str
+cancellation_date: date | None
+limit: Decimal = Field(gt=0, decimal_places=2)
+permitted_claim_types: list[Literal['collision', 'theft', 'glass', 'liability', 'weather']]
+
+The portal never posts a Policy. This model is internal. If it fails validation, that is a bug in our code or in the policy file, not a 400 to the portal.
+
+
+Class 3: ClaimRecord — a saved claim
+This is an accepted NotificationRequest plus a claim number.
+
+policy_number: str = Field(min_length=1)
+loss_date: date
+claim_type: Literal['collision', ...]
+estimated_amount: Decimal = Field(gt=0, decimal_places=2)
+description: str | None = None
+claim_reference: str = Field(pattern=r"^CLM-\d{4}-\d{6}$")
+
+Only a ClaimRecord can be stored. A refused request is still a NotificationRequest plus a RuleFailure. It can never become a ClaimRecord. That is how “a refused report is not a duplicate” is true by design, not by someone remembering not to save it.
+
+
+Class 4: RuleFailure — a frozen “no” from a rule
+
+model_config = ConfigDict(frozen=True)
+rule: RuleId
+code: ErrorCode
+
+
+The four objects, as a story:
+1.Portal sends a NotificationRequest.
+2. Service loads a Policy.
+3. If a rule says no → RuleFailure (not saved).
+4. If every rule says yes → ClaimRecord (this is what gets saved).
+
+
+REPOSITORY.PY:
+
+This file is the notebook. It answers only two questions:
+1. Save this accepted claim, and give it a number.
+2. Have we already saved this same report?
+
+It does not decide yes or no.
+
+This class only writes and looks up. models.py is the front door. repository.py is the back door / memory.
+
+
+The NotificationRepository class has 3 functions:
+- issue_claim_reference: Invent the next CLM-YYYY-NNNNNN
+- record: Write a ClaimRecord into the notebook
+- find_matching: Look for an already saved claim with the same 3 fields.
+
+There is no reject method. A refusal is not this class’s business. If something is not a ClaimRecord, it cannot go in.
+
+There are 5 things in policy_client.py file:
+
+1. LookupFailureReason
+LookupFailureReason = Literal["timeout", "unreachable", "unparsable"]
+
+2. PolicyNotFound
+A normal Python exception. It stores policy_number so later the error detail can show which number was missing.
+
+This is not a Pydantic model. It is not HTTP. It is just “raise this, catch this.”
+
+3. PolicyLookupFailed
+Also an exception. It stores:
+
+- policy_number
+- reason (timeout / unreachable / unparsable)
+
+4. PolicyRecord - a policy as the other system holds it
+This is a plain Python object, not a Pydantic BaseModel. That is deliberate.
+You built Policy (Pydantic). This class is what you build Policy from.
+
+5. PolicyClient - the promise, not the real computer
+A Protocol means: “I don’t care which class you give me. I only care that it has get_policy.”
+
+
+StubPolicyClient — the fake policy master
+This is the class tests actually use.
+
+
+SERVICE.PY - The Judge
+This file does not know it is a list in memory. It only talks to NotificationRepository through the three methods you already know.
+
+The result object: ValidationOutcome
+Every rule returns one of these.
+
+@dataclass(frozen=True)
+class ValidationOutcome:
+    passed: bool
+    rule: str | None = None
+    code: str | None = None
+    detail: dict[str, Any] = field(default_factory=dict)
+
+frozen=True means: after the decision is made, nobody can change it. Same idea as RuleFailure.
+
