@@ -15,7 +15,7 @@ from typing import Literal, cast
 
 import pytest
 
-from claims.models import ClaimRecord, NotificationRequest, Policy
+from claims.models import ClaimRecord, NotificationRequest, Policy, RuleFailure
 from claims.policy_client import LookupFailureReason, PolicyLookupFailed, StubPolicyClient
 from claims.repository import NotificationRepository
 from claims.service import (
@@ -396,8 +396,8 @@ def test_v4_estimated_amount_against_policy_limit(
 def test_evaluate_notification_passes_when_every_policy_rule_passes() -> None:
     """Contract 4.2: a notification inside term, type, and limit is admissible."""
     notification = make_request()
-    outcome = evaluate_notification(notification, policy_from_client("MOT-4471"))
-    assert_passed(outcome)
+    result = evaluate_notification(notification, policy_from_client("MOT-4471"))
+    assert result is None
 
 
 @pytest.mark.parametrize(
@@ -469,10 +469,10 @@ def test_evaluate_notification_stops_at_the_first_policy_rule_failure(
     code: str,
 ) -> None:
     """Contract 4.1: V-2, V-7, V-3, V-5, V-4. First failure only. WI-0158 AC-4."""
-    outcome = evaluate_notification(notification, policy)
-    assert outcome.passed is False
-    assert outcome.rule == rule
-    assert outcome.code == code
+    result = evaluate_notification(notification, policy)
+    assert isinstance(result, RuleFailure)
+    assert result.rule == rule
+    assert result.code == code
 
 
 # --- submit_notification (orchestration, V-1, V-6, recording) ------------
@@ -483,22 +483,19 @@ def test_submit_notification_records_only_when_every_rule_passes(
 ) -> None:
     notification = make_request()
     result = submit_notification(notification, policy_client, repository)
-    assert isinstance(result, ClaimRecord)
-    assert result.policy_number == notification.policy_number
-    assert result.loss_date == notification.loss_date
-    assert result.claim_type == notification.claim_type
-    assert result.estimated_amount == notification.estimated_amount
+    assert isinstance(result, ValidationOutcome)
+    assert result.passed is True
+    assert result.claim_reference is not None
     assert CLAIM_REFERENCE_PATTERN.fullmatch(result.claim_reference)
     year = datetime.now(tz=UTC).date().year
     assert result.claim_reference.startswith(f"CLM-{year}-")
-    assert (
-        repository.find_matching(
-            notification.policy_number,
-            notification.loss_date,
-            notification.claim_type,
-        )
-        is result
+    stored = repository.find_matching(
+        notification.policy_number,
+        notification.loss_date,
+        notification.claim_type,
     )
+    assert stored is not None
+    assert stored.claim_reference == result.claim_reference
 
 
 @pytest.mark.parametrize(
@@ -614,7 +611,9 @@ def test_submit_notification_does_not_treat_a_refusal_as_a_duplicate(
     assert second.rule == "V-4"
 
     accepted = submit_notification(make_request(), policy_client, repository)
-    assert isinstance(accepted, ClaimRecord)
+    assert isinstance(accepted, ValidationOutcome)
+    assert accepted.passed is True
+    assert accepted.claim_reference is not None
 
 
 @pytest.mark.parametrize(
