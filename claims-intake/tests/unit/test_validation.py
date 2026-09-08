@@ -642,3 +642,6 @@ def test_submit_notification_does_not_catch_policy_lookup_failed(
         )
         is None
     )
+
+def test_step8_pipeline_must_fail() -> None:
+    assert False
