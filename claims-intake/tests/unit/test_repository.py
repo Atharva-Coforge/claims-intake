@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 import pytest
 
@@ -190,8 +190,9 @@ def test_record_stores_only_claim_records(
     not_a_claim: NotificationRequest | RuleFailure,
 ) -> None:
     """WI-0151 AC-3: a refusal is not a ClaimRecord, so it cannot be stored."""
+    payload: Any = not_a_claim
     with pytest.raises(TypeError, match="ClaimRecord only"):
-        repository.record(not_a_claim)  # type: ignore[arg-type]
+        repository.record(payload)
 
 
 @pytest.mark.parametrize(
