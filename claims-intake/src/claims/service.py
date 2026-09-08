@@ -92,7 +92,19 @@ def evaluate_loss_after_inception(
     The boundary is stated in contract section 4.2 and in WI-0142 AC-3. A loss on
     the inception date is covered.
     """
-    raise NotImplementedError("Day 3 assignment")
+    return ValidationOutcome(passed=False)
+
+
+def evaluate_policy_not_cancelled(
+    notification: NotificationRequest,
+    policy: Policy,
+) -> ValidationOutcome:
+    """V-7. The policy must not be cancelled on the loss date.
+
+    Contract section 4.2: `cancellation_date` is null, or `loss_date` is strictly
+    before `cancellation_date`. A loss on the cancellation date is not covered.
+    """
+    return ValidationOutcome(passed=False)
 
 
 def evaluate_loss_before_expiry(
@@ -100,7 +112,19 @@ def evaluate_loss_before_expiry(
     policy: Policy,
 ) -> ValidationOutcome:
     """V-3. The loss must not fall after the policy expiry date."""
-    raise NotImplementedError("Day 3 assignment")
+    return ValidationOutcome(passed=False)
+
+
+def evaluate_not_duplicate(
+    notification: NotificationRequest,
+    repository: NotificationRepository,
+) -> ValidationOutcome:
+    """V-6. No recorded notification may share policy, loss date, and claim type.
+
+    Contract section 4.2 and WI-0151. A previous refusal was never recorded, so it
+    is not a duplicate.
+    """
+    return ValidationOutcome(passed=False)
 
 
 def evaluate_amount_within_limit(
@@ -111,7 +135,7 @@ def evaluate_amount_within_limit(
 
     An amount equal to the limit is within cover, per contract section 4.2.
     """
-    raise NotImplementedError("Day 3 assignment")
+    return ValidationOutcome(passed=False)
 
 
 def evaluate_claim_type_covered(
@@ -119,22 +143,21 @@ def evaluate_claim_type_covered(
     policy: Policy,
 ) -> ValidationOutcome:
     """V-5. The claim type must be permitted on the policy's product."""
-    raise NotImplementedError("Day 3 assignment")
+    return ValidationOutcome(passed=False)
 
 
 def evaluate_notification(
     notification: NotificationRequest,
-    policy_client: PolicyClient,
-    repository: NotificationRepository,
+    policy: Policy,
 ) -> ValidationOutcome:
-    """Evaluate every rule and return the outcome the caller sees.
+    """Evaluate the policy rules and return the outcome the caller sees.
 
     A notification can violate several rules at once and the caller sees one
     reason, so the order this function evaluates in is a caller-visible behavior.
     It is fixed by contract section 4.1 and by nothing else. If you find yourself
     choosing an order here, the contract is incomplete and the fix belongs there.
     """
-    raise NotImplementedError("Day 3 assignment")
+    return ValidationOutcome(passed=False)
 
 
 def submit_notification(
@@ -148,4 +171,4 @@ def submit_notification(
     recorded with a claim reference or it does not exist, and there is no state in
     between for a later reader to interpret.
     """
-    raise NotImplementedError("Day 3 assignment")
+    return ValidationOutcome(passed=False)
