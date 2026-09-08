@@ -17,3 +17,7 @@ Two changes the agent produced during Day 3. One was accepted. One was rejected 
 **What we decided.** Correct the tests before any rule was implemented. Pass is `None`. Fail is `RuleFailure(rule=..., code=...)`. `ValidationOutcome` stays the return type of each rule and of `submit_notification`.
 
 **Reason.** The Day 3 interface (C3) fixes `evaluate_notification(notification, policy) -> RuleFailure | None`. The acceptance criterion is the same: that function takes only a notification and a policy, performs no I/O, and writes nothing. Returning `ValidationOutcome` would have made it the same object as `submit_notification`, so a caller could not tell a policy-only decision from an orchestrated submit. Tomorrow’s HTTP layer calls `submit_notification` and maps `ValidationOutcome`; it is not supposed to receive that type from `evaluate_notification`. Leaving the first draft would have failed C3 and the criterion that `evaluate_notification` is a side-effect-free decision.
+
+Step 8. PR #3, commit "Step 8: commit that must fail CI".
+checks failed: https://github.com/Atharva-Coforge/claims-intake/actions/runs/34276784148
+Merge was blocked.
