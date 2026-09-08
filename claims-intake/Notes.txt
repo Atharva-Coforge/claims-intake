@@ -264,3 +264,38 @@ class ValidationOutcome:
 
 frozen=True means: after the decision is made, nobody can change it. Same idea as RuleFailure.
 
+How ValidationOutcome is different from RuleFailure:
+RuleFailure = tiny frozen pair (rule, code).
+ValidationOutcome = the service's answer, including passed and detail.
+
+An ordinary “no” does not raise.
+V-1 does not raise for a missing policy. It returns failed(...).
+Raising is for surprises (the policy master is down). Returning is for “we understood you, and the answer is no.”
+
+submit_notification — decide, then maybe save
+This is the “all or nothing”. 
+
+def submit_notification(...) -> ClaimRecord | ValidationOutcome:
+
+Return type is ClaimRecord | ValidationOutcome:
+
+success → the saved claim (201 + CLM-...)
+failure → the failed outcome (422/409 + envelope)
+
+
+ROUTES.PY:
+This is the only file that knows about HTTP. FastAPI is the library that turns Python functions into a website API. app is the application object. Uvicorn (the server listed in pyproject.toml) will run this app.
+
+This layer does three things and no more:
+1. parse the request
+2. call the service
+3. map the outcome to a status code
+
+It holds no rule logic. A rule that appears here is a rule the service layer cannot be tested for.
+
+Functionality of the files:
+src/claims/api/routes.py - The web door.
+tests/conftest.py - Shared test helpers.
+pyproject.toml - Project name, Python version, libraries, test/lint settings.
+
+That last sentence is the warning. If you write “if amount > limit” inside routes.py, then you can only test it by starting a web server. 
