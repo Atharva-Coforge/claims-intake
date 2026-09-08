@@ -5,6 +5,11 @@ is why it can be tested by calling a function with a typed object and asserting 
 the result with no server running. It does not know where notifications are
 stored either. It knows the rules.
 
+V-6 is not in POLICY_RULES. Those entries are notification + policy only
+(contract 4.2 V-2, V-7, V-3, V-5, V-4). V-6 needs the repository
+(WI-0151). submit_notification runs it after V-3 and before V-5 so
+section 4.1 order still holds: V-1, V-2, V-7, V-3, V-6, V-5, V-4.
+
 `evaluate_policy_exists` ships written. It is the pattern every other rule
 follows: take the notification and whatever it needs, decide, and return a
 `ValidationOutcome` that names the rule and carries the values the decision was
@@ -92,7 +97,14 @@ def evaluate_loss_after_inception(
     The boundary is stated in contract section 4.2 and in WI-0142 AC-3. A loss on
     the inception date is covered.
     """
-    return ValidationOutcome(passed=False)
+    if notification.loss_date >= policy.effective_date:
+        return ValidationOutcome.ok()
+    return ValidationOutcome.failed(
+        rule="V-2",
+        code="LOSS_BEFORE_INCEPTION",
+        loss_date=notification.loss_date,
+        effective_date=policy.effective_date,
+    )
 
 
 def evaluate_policy_not_cancelled(
@@ -104,7 +116,14 @@ def evaluate_policy_not_cancelled(
     Contract section 4.2: `cancellation_date` is null, or `loss_date` is strictly
     before `cancellation_date`. A loss on the cancellation date is not covered.
     """
-    return ValidationOutcome(passed=False)
+    if policy.cancellation_date is None or notification.loss_date < policy.cancellation_date:
+        return ValidationOutcome.ok()
+    return ValidationOutcome.failed(
+        rule="V-7",
+        code="POLICY_CANCELLED",
+        loss_date=notification.loss_date,
+        cancellation_date=policy.cancellation_date,
+    )
 
 
 def evaluate_loss_before_expiry(
@@ -112,7 +131,14 @@ def evaluate_loss_before_expiry(
     policy: Policy,
 ) -> ValidationOutcome:
     """V-3. The loss must not fall after the policy expiry date."""
-    return ValidationOutcome(passed=False)
+    if notification.loss_date <= policy.expiry_date:
+        return ValidationOutcome.ok()
+    return ValidationOutcome.failed(
+        rule="V-3",
+        code="LOSS_AFTER_EXPIRY",
+        loss_date=notification.loss_date,
+        expiry_date=policy.expiry_date,
+    )
 
 
 def evaluate_not_duplicate(
@@ -124,7 +150,18 @@ def evaluate_not_duplicate(
     Contract section 4.2 and WI-0151. A previous refusal was never recorded, so it
     is not a duplicate.
     """
-    return ValidationOutcome(passed=False)
+    recorded = repository.find_matching(
+        notification.policy_number,
+        notification.loss_date,
+        notification.claim_type,
+    )
+    if recorded is None:
+        return ValidationOutcome.ok()
+    return ValidationOutcome.failed(
+        rule="V-6",
+        code="DUPLICATE_NOTIFICATION",
+        claim_reference=recorded.claim_reference,
+    )
 
 
 def evaluate_amount_within_limit(
@@ -135,7 +172,13 @@ def evaluate_amount_within_limit(
 
     An amount equal to the limit is within cover, per contract section 4.2.
     """
-    return ValidationOutcome(passed=False)
+    if notification.estimated_amount <= policy.limit:
+        return ValidationOutcome.ok()
+    return ValidationOutcome.failed(
+        rule="V-4",
+        code="AMOUNT_EXCEEDS_LIMIT",
+        estimated_amount=notification.estimated_amount,
+    )
 
 
 def evaluate_claim_type_covered(
@@ -143,7 +186,13 @@ def evaluate_claim_type_covered(
     policy: Policy,
 ) -> ValidationOutcome:
     """V-5. The claim type must be permitted on the policy's product."""
-    return ValidationOutcome(passed=False)
+    if notification.claim_type in policy.permitted_claim_types:
+        return ValidationOutcome.ok()
+    return ValidationOutcome.failed(
+        rule="V-5",
+        code="TYPE_NOT_COVERED",
+        claim_type=notification.claim_type,
+    )
 
 
 def evaluate_notification(
