@@ -18,6 +18,14 @@ Two changes the agent produced during Day 3. One was accepted. One was rejected 
 
 **Reason.** The Day 3 interface (C3) fixes `evaluate_notification(notification, policy) -> RuleFailure | None`. The acceptance criterion is the same: that function takes only a notification and a policy, performs no I/O, and writes nothing. Returning `ValidationOutcome` would have made it the same object as `submit_notification`, so a caller could not tell a policy-only decision from an orchestrated submit. Tomorrow’s HTTP layer calls `submit_notification` and maps `ValidationOutcome`; it is not supposed to receive that type from `evaluate_notification`. Leaving the first draft would have failed C3 and the criterion that `evaluate_notification` is a side-effect-free decision.
 
-Step 8. PR #3, commit "Step 8: commit that must fail CI".
-checks failed: https://github.com/Atharva-Coforge/claims-intake/actions/runs/34276784148
-Merge was blocked.
+## Step 8: gate observation
+
+PR: [https://github.com/Atharva-Coforge/claims-intake/pull/3](https://github.com/Atharva-Coforge/claims-intake/pull/3)
+
+Commit: a30d3ca (assert False in a throwaway test)
+
+Run: [https://github.com/Atharva-Coforge/claims-intake/actions/runs/34276784148](https://github.com/Atharva-Coforge/claims-intake/actions/runs/34276784148)
+
+What failed: the pytest step exited non-zero. ruff and mypy on that run: both passed.
+
+What GitHub showed: the merge button stayed enabled. The checks job was red. That is a marked failure, not a blocked merge. Branch protection does not require the checks job.
