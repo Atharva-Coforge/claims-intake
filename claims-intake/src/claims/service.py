@@ -23,12 +23,22 @@ Day 3 assignment. Build the remaining rules test-first against
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, cast
 
-from claims.models import ClaimRecord, NotificationRequest, Policy
+from claims.models import (
+    ClaimRecord,
+    ErrorCode,
+    NotificationRequest,
+    Policy,
+    RuleFailure,
+    RuleId,
+)
 from claims.policy_client import PolicyClient, PolicyNotFound
 from claims.repository import NotificationRepository
+
+ClaimType = Literal["collision", "theft", "glass", "liability", "weather"]
 
 
 @dataclass(frozen=True)
@@ -48,6 +58,7 @@ class ValidationOutcome:
     rule: str | None = None
     code: str | None = None
     detail: dict[str, Any] = field(default_factory=dict)
+    claim_reference: str | None = None
 
     @classmethod
     def ok(cls) -> ValidationOutcome:
@@ -56,6 +67,9 @@ class ValidationOutcome:
     @classmethod
     def failed(cls, rule: str, code: str, **detail: Any) -> ValidationOutcome:
         return cls(passed=False, rule=rule, code=code, detail=detail)
+
+
+PolicyRule = Callable[[NotificationRequest, Policy], ValidationOutcome]
 
 
 def evaluate_policy_exists(
@@ -195,10 +209,26 @@ def evaluate_claim_type_covered(
     )
 
 
+POLICY_RULES: Sequence[PolicyRule] = (
+    evaluate_loss_after_inception,
+    evaluate_policy_not_cancelled,
+    evaluate_loss_before_expiry,
+    evaluate_claim_type_covered,
+    evaluate_amount_within_limit,
+)
+
+
+def _rule_failure_from(outcome: ValidationOutcome) -> RuleFailure:
+    return RuleFailure(
+        rule=cast(RuleId, outcome.rule),
+        code=cast(ErrorCode, outcome.code),
+    )
+
+
 def evaluate_notification(
     notification: NotificationRequest,
     policy: Policy,
-) -> ValidationOutcome:
+) -> RuleFailure | None:
     """Evaluate the policy rules and return the outcome the caller sees.
 
     A notification can violate several rules at once and the caller sees one
@@ -206,18 +236,64 @@ def evaluate_notification(
     It is fixed by contract section 4.1 and by nothing else. If you find yourself
     choosing an order here, the contract is incomplete and the fix belongs there.
     """
-    return ValidationOutcome(passed=False)
+    for rule in POLICY_RULES:
+        outcome = rule(notification, policy)
+        if not outcome.passed:
+            return _rule_failure_from(outcome)
+    return None
 
 
 def submit_notification(
     notification: NotificationRequest,
     policy_client: PolicyClient,
     repository: NotificationRepository,
-) -> ClaimRecord | ValidationOutcome:
+) -> ValidationOutcome:
     """Validate, and record only if every rule passed.
 
     Nothing is written before the decision is made. A notification is either
     recorded with a claim reference or it does not exist, and there is no state in
     between for a later reader to interpret.
     """
-    return ValidationOutcome(passed=False)
+    try:
+        record = policy_client.get_policy(notification.policy_number)
+    except PolicyNotFound:
+        return ValidationOutcome.failed(
+            rule="V-1",
+            code="POLICY_NOT_FOUND",
+            policy_number=notification.policy_number,
+        )
+
+    policy = Policy(
+        policy_number=record.policy_number,
+        product=record.product,
+        effective_date=record.effective_date,
+        expiry_date=record.expiry_date,
+        cancellation_date=record.cancellation_date,
+        limit=record.limit,
+        permitted_claim_types=cast(list[ClaimType], list(record.permitted_claim_types)),
+    )
+
+    for rule in POLICY_RULES[:3]:
+        outcome = rule(notification, policy)
+        if not outcome.passed:
+            return outcome
+
+    outcome = evaluate_not_duplicate(notification, repository)
+    if not outcome.passed:
+        return outcome
+
+    for rule in POLICY_RULES[3:]:
+        outcome = rule(notification, policy)
+        if not outcome.passed:
+            return outcome
+
+    claim = ClaimRecord(
+        policy_number=notification.policy_number,
+        loss_date=notification.loss_date,
+        claim_type=notification.claim_type,
+        estimated_amount=notification.estimated_amount,
+        description=notification.description,
+        claim_reference=repository.issue_claim_reference(),
+    )
+    stored = repository.record(claim)
+    return ValidationOutcome(passed=True, claim_reference=stored.claim_reference)
