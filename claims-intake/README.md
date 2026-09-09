@@ -59,7 +59,25 @@ Build from the directory that contains the `Dockerfile`:
 docker buildx build --platform linux/amd64 -t claims-intake .
 ```
 
-Then run that image and post to port 8000 the same way as above.
+Then run the image. Docker is already available in this lab; do not
+install it:
+
+```
+docker run --rm -p 8000:8000 claims-intake
+```
+
+`-p 8000:8000` publishes the service on this machine. Post to
+`http://127.0.0.1:8000/notifications`, not to `0.0.0.0`. `0.0.0.0` is only
+the address the process binds to inside the container. The `uvicorn` command
+above starts the app in this lab container. It does not start the image you
+just built.
+
+```
+curl -X POST http://127.0.0.1:8000/notifications \
+  -H 'Content-Type: application/json' \
+  -d '{"policy_number":"MOT-4471","loss_date":"2026-04-02","claim_type":"collision","estimated_amount":"4200.00"}'
+```
+
 <!-- REVIEW: "the same way as above" adds a lookup step for readers. Could just repeat the actual docker run / curl command here for a self-contained flow, e.g.:
 docker run -p 8000:8000 claims-intake
 curl -X POST localhost:8000/...
