@@ -237,3 +237,27 @@ def test_policy_master_lookup_failures_are_5xx(
         policy_number=payload["policy_number"],
         reason=reason,
     )
+
+def test_edge_10_cancelled_beats_expiry(client: TestClient) -> None:
+    """EDGE-10: V-7 before V-3. Contract §4.1 / WI-0158 AC-4."""
+    payload = load_payload("fnol_edge.json", "EDGE-10")
+    response = client.post(ENDPOINT, json=payload)
+    assert_refusal(
+        response,
+        status=422,
+        code="POLICY_CANCELLED",
+        loss_date=payload["loss_date"],
+        cancellation_date="2025-10-01",
+    )
+
+
+def test_edge_11_flood_is_malformed_not_type_not_covered(client: TestClient) -> None:
+    """EDGE-11: flood is not in §2.3, so 400, not V-5. Contract §4.3."""
+    response = client.post(ENDPOINT, json=load_payload("fnol_edge.json", "EDGE-11"))
+    assert_refusal(response, status=400, code="MALFORMED_REQUEST")
+
+
+def test_edge_12_three_decimals_is_malformed_not_amount_rule(client: TestClient) -> None:
+    """EDGE-12: extra fractional digits are 400, not V-4. Contract §4.3."""
+    response = client.post(ENDPOINT, json=load_payload("fnol_edge.json", "EDGE-12"))
+    assert_refusal(response, status=400, code="MALFORMED_REQUEST")
