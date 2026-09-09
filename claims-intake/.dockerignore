@@ -1,0 +1,28 @@
+# VCS / editor / lab tooling
+.git
+.github
+.devcontainer
+.worktrees
+.DS_Store
+
+# Local environments and caches
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Not required to run the service
+tests
+docs
+Notes.txt
+README.md
+.gitignore
+
+# Secrets
+.env
+*.env
+!example.env
