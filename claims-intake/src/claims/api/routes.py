@@ -25,7 +25,7 @@ from claims.policy_client import (
     StubPolicyClient,
 )
 from claims.repository import NotificationRepository
-from claims.service import ValidationOutcome, submit_notification
+from claims.service import submit_notification
 
 app = FastAPI(title="Claims Intake Service")
 
