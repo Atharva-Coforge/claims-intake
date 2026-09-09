@@ -5,6 +5,11 @@ Payloads come from `data/fnol_*.json`. Assertions cover status, `code`, and the
 §5.1 detail keys for each refusal.
 """
 
+# Suggestion. tests/integration/test_routes.py never posts EDGE-11, EDGE-12, or
+# EDGE-10. Day 1 said the edge set is the source for the integration cases. The
+# suite meets "one parse failure" and "one refusal per rule," but it does not
+# prove the three rows that are easy to get wrong at the HTTP boundary.
+
 from __future__ import annotations
 
 import json
