@@ -81,6 +81,7 @@ def assert_refusal(
     """Assert status, code, §5.1 detail keys, and any expected detail values."""
     assert response.status_code == status
     body = response.json()
+    assert isinstance(body, dict)
     assert body["code"] == code
     assert "message" in body
     assert isinstance(body["detail"], dict)
