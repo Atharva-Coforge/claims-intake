@@ -60,7 +60,10 @@ docker buildx build --platform linux/amd64 -t claims-intake .
 ```
 
 Then run that image and post to port 8000 the same way as above.
-
+<!-- REVIEW: "the same way as above" adds a lookup step for readers. Could just repeat the actual docker run / curl command here for a self-contained flow, e.g.:
+docker run -p 8000:8000 claims-intake
+curl -X POST localhost:8000/...
+-->
 ## Where things are
 
 | Path | What it holds |
